@@ -20,14 +20,14 @@ import {
   Users,
 } from "lucide-react";
 import { Badge, Button, Card, Modal, PageHeader } from "../../components/Common";
-import { mockActivities, useApp } from "../../context/AppContext";
+import { useApp } from "../../context/AppContext";
 import { AddAssetForm } from "../assets/AssetsPage";
 import { CreateProjectForm } from "../projects/ProjectsPage";
 import { CreateRnDForm } from "../rnd/RnDPage";
 import { CreateTemporaryForm } from "../temporary/TemporaryPage";
 
 export default function DashboardPage() {
-  const { assets, employees, rndTeams, projects, temporary, navigate, refreshAppData } = useApp();
+  const { assets, employees, rndTeams, projects, temporary, activityLogs, navigate, refreshAppData, canEditAssets } = useApp();
   const [openPanel, setOpenPanel] = useState("assetTypes");
   const [assetModalOpen, setAssetModalOpen] = useState(false);
   const [temporaryModalOpen, setTemporaryModalOpen] = useState(false);
@@ -116,7 +116,6 @@ export default function DashboardPage() {
               </div>
               <div className="text-2xl font-bold text-slate-800">{stat.value}</div>
               <div className="text-xs font-medium text-slate-600 mt-0.5">{stat.label}</div>
-              <div className="text-xs text-slate-400 mt-1">{stat.trend}</div>
             </Card>
           );
         })}
@@ -132,7 +131,7 @@ export default function DashboardPage() {
               </Button>
             </div>
             <div className="divide-y divide-slate-50">
-              {mockActivities.map((activity) => (
+              {(activityLogs.length > 0 ? activityLogs : []).slice(0, 5).map((activity) => (
                 <div key={activity.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50/50 transition-colors">
                   <div className="w-9 h-9 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
                     <Activity size={16} className="text-blue-600" />
@@ -141,9 +140,12 @@ export default function DashboardPage() {
                     <div className="text-sm font-medium text-slate-700">{activity.action}</div>
                     <div className="text-xs text-slate-400 truncate">{activity.description}</div>
                   </div>
-                  <div className="text-xs text-slate-400 flex-shrink-0">{activity.time}</div>
+                  <div className="text-xs text-slate-400 flex-shrink-0">{activity.createdAt ? new Date(activity.createdAt).toLocaleString() : ""}</div>
                 </div>
               ))}
+              {activityLogs.length === 0 && (
+                <div className="px-5 py-6 text-sm text-slate-400">No activity logs yet.</div>
+              )}
             </div>
           </Card>
         </div>
@@ -195,46 +197,54 @@ export default function DashboardPage() {
             </button>
             {openPanel === "quickActions" && (
               <div className="space-y-2 mt-2">
-                <button
-                  onClick={() => setAssetModalOpen(true)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-blue-50 text-left transition-colors group"
-                >
-                  <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                    <PackagePlus size={15} className="text-blue-600" />
-                  </div>
-                  <span className="text-sm font-medium text-slate-700 group-hover:text-blue-700">Add New Asset</span>
-                  <ArrowUpRight size={14} className="ml-auto text-slate-300 group-hover:text-blue-500" />
-                </button>
-                <button
-                  onClick={() => setTemporaryModalOpen(true)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-amber-50 text-left transition-colors group"
-                >
-                  <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">
-                    <Clock size={15} className="text-amber-600" />
-                  </div>
-                  <span className="text-sm font-medium text-slate-700 group-hover:text-amber-700">Temp Allocation</span>
-                  <ArrowUpRight size={14} className="ml-auto text-slate-300 group-hover:text-amber-500" />
-                </button>
-                <button
-                  onClick={() => setRndModalOpen(true)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-violet-50 text-left transition-colors group"
-                >
-                  <div className="w-8 h-8 bg-violet-100 rounded-lg flex items-center justify-center">
-                    <Beaker size={15} className="text-violet-600" />
-                  </div>
-                  <span className="text-sm font-medium text-slate-700 group-hover:text-violet-700">Create R&D Team</span>
-                  <ArrowUpRight size={14} className="ml-auto text-slate-300 group-hover:text-violet-500" />
-                </button>
-                <button
-                  onClick={() => setProjectModalOpen(true)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-emerald-50 text-left transition-colors group"
-                >
-                  <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
-                    <FolderKanban size={15} className="text-emerald-600" />
-                  </div>
-                  <span className="text-sm font-medium text-slate-700 group-hover:text-emerald-700">New Project</span>
-                  <ArrowUpRight size={14} className="ml-auto text-slate-300 group-hover:text-emerald-500" />
-                </button>
+                {canEditAssets && (
+                  <button
+                    onClick={() => setAssetModalOpen(true)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-blue-50 text-left transition-colors group"
+                  >
+                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                      <PackagePlus size={15} className="text-blue-600" />
+                    </div>
+                    <span className="text-sm font-medium text-slate-700 group-hover:text-blue-700">Add New Asset</span>
+                    <ArrowUpRight size={14} className="ml-auto text-slate-300 group-hover:text-blue-500" />
+                  </button>
+                )}
+                {canEditAssets && (
+                  <button
+                    onClick={() => setTemporaryModalOpen(true)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-amber-50 text-left transition-colors group"
+                  >
+                    <div className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">
+                      <Clock size={15} className="text-amber-600" />
+                    </div>
+                    <span className="text-sm font-medium text-slate-700 group-hover:text-amber-700">Temp Allocation</span>
+                    <ArrowUpRight size={14} className="ml-auto text-slate-300 group-hover:text-amber-500" />
+                  </button>
+                )}
+                {canEditAssets && (
+                  <button
+                    onClick={() => setRndModalOpen(true)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-violet-50 text-left transition-colors group"
+                  >
+                    <div className="w-8 h-8 bg-violet-100 rounded-lg flex items-center justify-center">
+                      <Beaker size={15} className="text-violet-600" />
+                    </div>
+                    <span className="text-sm font-medium text-slate-700 group-hover:text-violet-700">Create R&D Team</span>
+                    <ArrowUpRight size={14} className="ml-auto text-slate-300 group-hover:text-violet-500" />
+                  </button>
+                )}
+                {canEditAssets && (
+                  <button
+                    onClick={() => setProjectModalOpen(true)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-emerald-50 text-left transition-colors group"
+                  >
+                    <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
+                      <FolderKanban size={15} className="text-emerald-600" />
+                    </div>
+                    <span className="text-sm font-medium text-slate-700 group-hover:text-emerald-700">New Project</span>
+                    <ArrowUpRight size={14} className="ml-auto text-slate-300 group-hover:text-emerald-500" />
+                  </button>
+                )}
               </div>
             )}
           </Card>

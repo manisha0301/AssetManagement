@@ -15,8 +15,17 @@ import {
   Shield,
   Users,
 } from "lucide-react";
-import { mockActivities, useApp } from "../context/AppContext";
+import { useApp } from "../context/AppContext";
 import image1 from "../assets/Bkristellar_logo.png";
+
+const getInitials = (name = "Admin User") =>
+  name
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
 const navItems = [
   { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
@@ -40,8 +49,11 @@ const navItems = [
 ];
 
 export function Sidebar() {
-  const { currentPage, navigate, sidebarOpen, setSidebarOpen, mobileSidebarOpen, setMobileSidebarOpen } = useApp();
+  const { currentPage, navigate, sidebarOpen, setSidebarOpen, mobileSidebarOpen, setMobileSidebarOpen, authUser, openModal } = useApp();
   const [expanded, setExpanded] = useState({ Assets: true, "R&D Assets": true, "Project Assets": true });
+  const displayName = authUser?.displayName || "Admin User";
+  const email = authUser?.email || "admin@assetflow.com";
+  const initials = getInitials(displayName);
 
   const isActive = (path) => currentPage === path || currentPage.startsWith(path + "/");
 
@@ -92,10 +104,10 @@ export function Sidebar() {
       </div>
       <div className="px-3 py-4 border-t border-slate-100">
         <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-100 cursor-pointer transition-colors">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center text-white text-xs font-bold">AD</div>
+          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center text-white text-xs font-bold">{initials}</div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-slate-700 truncate">Admin User</div>
-            <div className="text-xs text-slate-400 truncate">admin@company.com</div>
+            <div className="text-sm font-semibold text-slate-700 truncate">{displayName}</div>
+            <div className="text-xs text-slate-400 truncate">{email}</div>
           </div>
           <Settings size={14} className="text-slate-400"/>
         </div>
@@ -121,9 +133,40 @@ export function Sidebar() {
 }
 
 export function TopNavbar({ title }) {
-  const { setMobileSidebarOpen, setSidebarOpen, sidebarOpen } = useApp();
+  const { activityLogs, setMobileSidebarOpen, setSidebarOpen, sidebarOpen, authUser, logout, openModal } = useApp();
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const displayName = authUser?.displayName || "Admin User";
+  const email = authUser?.email || "admin@assetflow.com";
+  const initials = getInitials(displayName);
+  const recentActivities = [...activityLogs]
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+    .slice(0, 3);
+
+  const formatActivityTime = (createdAt) => {
+    if (!createdAt) return "";
+
+    const date = new Date(createdAt);
+    if (Number.isNaN(date.getTime())) return "";
+
+    const diffMs = Math.max(0, Date.now() - date.getTime());
+    const hourMs = 60 * 60 * 1000;
+    const dayMs = 24 * hourMs;
+    const weekMs = 7 * dayMs;
+
+    if (diffMs < dayMs) {
+      const hours = Math.max(1, Math.floor(diffMs / hourMs));
+      return `${hours}hrs ago`;
+    }
+
+    if (diffMs < weekMs) {
+      const days = Math.max(1, Math.floor(diffMs / dayMs));
+      return `${days}day${days === 1 ? "" : "s"} ago`;
+    }
+
+    const weeks = Math.max(1, Math.floor(diffMs / weekMs));
+    return `${weeks}week${weeks === 1 ? "" : "s"} ago`;
+  };
 
   return (
     <div className="h-16 bg-white border-b border-slate-100 flex items-center px-4 sm:px-6 gap-4 flex-shrink-0">
@@ -142,30 +185,57 @@ export function TopNavbar({ title }) {
           {notifOpen && (
             <div className="absolute right-0 top-full mt-2 w-72 bg-white border border-slate-200 rounded-2xl shadow-xl z-30">
               <div className="px-4 py-3 border-b border-slate-100"><span className="text-sm font-semibold text-slate-800">Notifications</span></div>
-              {mockActivities.slice(0, 3).map(a => (
-                <div key={a.id} className="px-4 py-3 hover:bg-slate-50 border-b border-slate-50 transition-colors cursor-pointer">
-                  <div className="text-sm font-medium text-slate-700">{a.action}</div>
-                  <div className="text-xs text-slate-400 mt-0.5">{a.description} · {a.time}</div>
-                </div>
-              ))}
+              {recentActivities.length > 0 ? (
+                recentActivities.map((activity) => {
+                  const activityTime = formatActivityTime(activity.createdAt);
+
+                  return (
+                    <div key={activity.id} className="px-4 py-3 hover:bg-slate-50 border-b border-slate-50 transition-colors cursor-pointer">
+                      <div className="text-sm font-medium text-slate-700">{activity.action}</div>
+                      <div className="mt-0.5 flex items-center justify-between gap-3 text-xs text-slate-400">
+                        <span className="min-w-0 flex-1 truncate">{activity.description}</span>
+                        {activityTime ? <span className="flex-shrink-0 text-right">{activityTime}</span> : null}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="px-4 py-5 text-sm text-slate-400">No activity logs yet.</div>
+              )}
             </div>
           )}
         </div>
         <div className="relative">
           <button onClick={() => { setProfileOpen(!profileOpen); setNotifOpen(false); }}
             className="flex items-center gap-2 p-1.5 pr-3 rounded-xl hover:bg-slate-100 transition-colors">
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center text-white text-xs font-bold">AD</div>
-            <span className="text-sm font-medium text-slate-700 hidden sm:block">Admin</span>
+            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center text-white text-xs font-bold">{initials}</div>
+            <span className="text-sm font-medium text-slate-700 hidden sm:block">{displayName.split(" ")[0]}</span>
             <ChevronDown size={14} className="text-slate-400 hidden sm:block"/>
           </button>
           {profileOpen && (
             <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-slate-200 rounded-2xl shadow-xl z-30 overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-100">
-                <div className="text-sm font-semibold text-slate-800">Admin User</div>
-                <div className="text-xs text-slate-400">admin@company.com</div>
+                <div className="text-sm font-semibold text-slate-800">{displayName}</div>
+                <div className="text-xs text-slate-400">{email}</div>
               </div>
-              <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 transition-colors"><Settings size={14}/>Settings</button>
-              <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"><LogOut size={14}/>Sign Out</button>
+              <button
+                onClick={() => {
+                  setProfileOpen(false);
+                  setNotifOpen(false);
+                  openModal("/settings");
+                }}
+                className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+              ><Settings size={14}/>Settings</button>
+              <button
+                className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                onClick={() => {
+                  setProfileOpen(false);
+                  setNotifOpen(false);
+                  logout();
+                }}
+              >
+                <LogOut size={14}/>Sign Out
+              </button>
             </div>
           )}
         </div>

@@ -36,6 +36,7 @@ import {
   FormField,
   Input,
   Modal,
+  NotAuthorized,
   Pagination,
   PageHeader,
   SearchBar,
@@ -44,8 +45,83 @@ import {
 } from "../../components/Common";
 import { useApp } from "../../context/AppContext";
 
+function getActiveAssetAssignment(assetId, assetAssignments) {
+  return assetAssignments.find((assignment) => assignment.asset_id === assetId && assignment.status === "Active") || null;
+}
+
+const formatdatetime = (dateStr) => {
+  if (!dateStr || dateStr === "N/A" || dateStr === "Active") return dateStr || "N/A";
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return dateStr;
+  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+};
+
+function getAssignmentLabel(assignment, getEmp, getTeam, getProject) {
+  if (!assignment) return null;
+
+  if (assignment.assigned_to_type === "employee") {
+    const employee = getEmp(assignment.employee_id);
+    return employee
+      ? { label: employee.name, meta: `${employee.department} · ${employee.designation}`, avatar: employee.avatar, kind: "employee" }
+      : { label: assignment.employee_id || "Unknown Employee", meta: "", avatar: "?", kind: "employee" };
+  }
+
+  if (assignment.assigned_to_type === "team") {
+    const team = getTeam(assignment.team_id);
+    return team
+      ? { label: team.name, meta: "Assigned to team", avatar: "TM", kind: "group" }
+      : { label: assignment.team_id || "Unknown Team", meta: "Assigned to team", avatar: "TM", kind: "group" };
+  }
+
+  if (assignment.assigned_to_type === "project") {
+    const project = getProject(assignment.project_id);
+    return project
+      ? { label: project.name, meta: "Assigned to project", avatar: "PR", kind: "group" }
+      : { label: assignment.project_id || "Unknown Project", meta: "Assigned to project", avatar: "PR", kind: "group" };
+  }
+
+  return null;
+}
+
+function getAssetHistory(assetId, assetAssignments, getEmp, getTeam, getProject, temporary) {
+  const active = assetAssignments
+    .filter((assignment) => assignment.asset_id === assetId)
+    .sort((a, b) => new Date(b.assigned_date || 0) - new Date(a.assigned_date || 0));
+
+  const assignmentHistory = active.map((assignment) => {
+    const label = getAssignmentLabel(assignment, getEmp, getTeam, getProject);
+    return {
+      id: assignment.assignment_id,
+      employeeId: assignment.employee_id || assignment.team_id || assignment.project_id,
+      assignedDate: assignment.assigned_date || "N/A",
+      returnDate: assignment.status === "Active" ? "Active" : (assignment.return_date || "N/A"),
+      label: label?.label || "Assignment",
+      meta: label?.meta || "",
+      avatar: label?.avatar || "?",
+      kind: label?.kind || "employee",
+      status: assignment.status,
+    };
+  });
+
+  const tempHistory = temporary
+    .filter((allocation) => allocation.assetId === assetId)
+    .map((allocation) => ({
+      id: allocation.id,
+      employeeId: allocation.employeeId,
+      assignedDate: allocation.issueDate,
+      returnDate: allocation.returnDate,
+      label: allocation.modalName || "Temporary Allocation",
+      meta: "Temporary issue",
+      avatar: "?",
+      kind: "employee",
+      status: allocation.status,
+    }));
+
+  return [...assignmentHistory, ...tempHistory];
+}
+
 export function AssetsPage() {
-  const { assets, employees, rndTeams, projects, temporary, deleteAsset, navigate } = useApp();
+  const { assets, employees, rndTeams, projects, assetAssignments, temporary, deleteAsset, navigate, assetsLoading, dataError, canViewAssets, canEditAssets } = useApp();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -95,6 +171,10 @@ export function AssetsPage() {
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
   const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
+  if (!canViewAssets) {
+    return <NotAuthorized message="You need asset view permission to access this page." />;
+  }
+
   const assetTypeIcon = (type) => {
     const map = { Laptop: Monitor, Phone: Smartphone, Pendrive: HardDrive, "Data Cable": Cable, Charger: Zap };
     const Icon = map[type] || Package;
@@ -103,8 +183,8 @@ export function AssetsPage() {
 
   return (
     <div>
-      <PageHeader title="All Assets" subtitle={`${assets.length} assets total`}
-        actions={<Button onClick={() => setAddModalOpen(true)}><Plus size={14}/>Add Asset</Button>}
+      <PageHeader title="All Assets" subtitle={assetsLoading ? "Loading assets..." : `${assets.length} assets total`}
+        actions={canEditAssets ? <Button onClick={() => setAddModalOpen(true)}><Plus size={14}/>Add Asset</Button> : null}
       />
       <Card>
         <div className="flex flex-col sm:flex-row gap-3 p-4 border-b border-slate-100">
@@ -128,7 +208,13 @@ export function AssetsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {paged.map(asset => {
+              {assetsLoading ? (
+                <tr>
+                  <td className="px-4 py-10 text-center text-sm text-slate-500" colSpan="6">
+                    Loading assets from Asset Management...
+                  </td>
+                </tr>
+              ) : paged.map(asset => {
                 const assignment = getAssignmentDisplay(asset);
                 return (
                   <tr key={asset.id} className="hover:bg-slate-50/50 transition-colors">
@@ -158,8 +244,8 @@ export function AssetsPage() {
                     <td className="px-4 py-3.5">
                       <div className="relative flex items-center gap-1">
                         <Button variant="ghost" size="sm" onClick={() => setSelectedAsset(asset)}><Eye size={14}/></Button>
-                        <Button variant="ghost" size="sm" onClick={() => setEditingAsset(asset)}><Edit size={14}/></Button>
-                        <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(asset.id)}><Trash2 size={14} className="text-red-400"/></Button>
+                        {canEditAssets && <Button variant="ghost" size="sm" onClick={() => setEditingAsset(asset)}><Edit size={14}/></Button>}
+                        {canEditAssets && <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(asset.id)}><Trash2 size={14} className="text-red-400"/></Button>}
                       </div>
                     </td>
                   </tr>
@@ -167,7 +253,7 @@ export function AssetsPage() {
               })}
             </tbody>
           </table>
-          {paged.length === 0 && <EmptyState title="No assets found" description="Try adjusting your search or filters"/>}
+          {!assetsLoading && paged.length === 0 && <EmptyState title="No assets found" description="Try adjusting your search or filters"/>}
         </div>
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
@@ -176,6 +262,11 @@ export function AssetsPage() {
           </div>
         )}
       </Card>
+      {dataError && (
+        <div className="mt-4 rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {dataError}
+        </div>
+      )}
 
       <Modal isOpen={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} title="Confirm Delete" size="sm">
         <div className="flex items-start gap-3 mb-5">
@@ -184,7 +275,19 @@ export function AssetsPage() {
         </div>
         <div className="flex gap-2 justify-end">
           <Button variant="secondary" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-          <Button variant="danger" onClick={() => { deleteAsset(deleteConfirm); setDeleteConfirm(null); }}>Delete Asset</Button>
+          <Button
+            variant="danger"
+            onClick={async () => {
+              try {
+                await deleteAsset(deleteConfirm);
+                setDeleteConfirm(null);
+              } catch {
+                // Error is surfaced by the context toast/banner.
+              }
+            }}
+          >
+            Delete Asset
+          </Button>
         </div>
       </Modal>
 
@@ -200,6 +303,7 @@ export function AssetsPage() {
             getTeam={getTeam}
             getProject={getProject}
             assetTypeIcon={assetTypeIcon}
+            assetAssignments={assetAssignments}
             temporary={temporary}
           />
         )}
@@ -221,30 +325,10 @@ export function AssetsPage() {
   );
 }
 
-function AssetViewModalContent({ asset, getEmp, getTeam, getProject, assetTypeIcon, temporary }) {
-  const emp = getEmp(asset.assignedTo);
-  const team = asset.assignmentType === "team" ? getTeam(asset.assignmentRef) : null;
-  const project = asset.assignmentType === "project" ? getProject(asset.assignmentRef) : null;
-  const history = [
-    ...(asset.status === "Assigned" && asset.assignedTo
-      ? [{
-          id: `current-${asset.id}`,
-          employeeId: asset.assignedTo,
-          assignedDate: asset.assignedDate || "N/A",
-          returnDate: "Active",
-          label: "Direct Assignment",
-        }]
-      : []),
-    ...temporary
-      .filter((allocation) => allocation.assetId === asset.id)
-      .map((allocation) => ({
-        id: allocation.id,
-        employeeId: allocation.employeeId,
-        assignedDate: allocation.issueDate,
-        returnDate: allocation.returnDate,
-        label: allocation.modalName || "Temporary Allocation",
-      })),
-  ];
+function AssetViewModalContent({ asset, getEmp, getTeam, getProject, assetTypeIcon, assetAssignments, temporary }) {
+  const activeAssignment = getActiveAssetAssignment(asset.id, assetAssignments);
+  const currentAssignment = getAssignmentLabel(activeAssignment, getEmp, getTeam, getProject);
+  const history = getAssetHistory(asset.id, assetAssignments, getEmp, getTeam, getProject, temporary);
 
   return (
     <div className="space-y-6">
@@ -283,34 +367,14 @@ function AssetViewModalContent({ asset, getEmp, getTeam, getProject, assetTypeIc
 
       <Card className="p-5">
         <div className="text-sm font-semibold text-slate-800 mb-3">Assigned To</div>
-        {emp ? (
+        {currentAssignment ? (
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold">
-              {emp.avatar}
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold ${currentAssignment.kind === "employee" ? "bg-blue-600" : "bg-emerald-600"}`}>
+              {currentAssignment.avatar}
             </div>
             <div>
-              <div className="text-sm font-semibold text-slate-700">{emp.name}</div>
-              <div className="text-xs text-slate-400">{emp.department} · {emp.designation}</div>
-            </div>
-          </div>
-        ) : team ? (
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-violet-600 rounded-xl flex items-center justify-center text-white text-xs font-bold">
-              TM
-            </div>
-            <div>
-              <div className="text-sm font-semibold text-slate-700">{team.name}</div>
-              <div className="text-xs text-slate-400">Assigned to team</div>
-            </div>
-          </div>
-        ) : project ? (
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white text-xs font-bold">
-              PR
-            </div>
-            <div>
-              <div className="text-sm font-semibold text-slate-700">{project.name}</div>
-              <div className="text-xs text-slate-400">Assigned to project</div>
+              <div className="text-sm font-semibold text-slate-700">{currentAssignment.label}</div>
+              <div className="text-xs text-slate-400">{currentAssignment.meta}</div>
             </div>
           </div>
         ) : (
@@ -325,27 +389,25 @@ function AssetViewModalContent({ asset, getEmp, getTeam, getProject, assetTypeIc
         <div className="text-sm font-semibold text-slate-800 mb-3">Asset History</div>
         {history.length > 0 ? (
           <div className="space-y-3">
-            {history.map((entry) => {
-              const employee = getEmp(entry.employeeId);
-              return (
-                <div key={entry.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-                  <div className="flex items-center justify-between gap-3 mb-2">
-                    <div className="text-sm font-semibold text-slate-700">{employee?.name || entry.employeeId}</div>
-                    <div className="text-xs text-slate-400">{entry.label}</div>
-                  </div>
+            {history.map((entry) => (
+              <div key={entry.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <div className="text-sm font-semibold text-slate-700">{entry.label}</div>
+                  <div className="text-xs text-slate-400">{entry.status}</div>
+                </div>
+                {entry.meta && <div className="text-xs text-slate-400 mb-2">{entry.meta}</div>}
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
                       <div className="text-xs text-slate-400 mb-1">Assigned Date</div>
-                      <div className="text-slate-700">{entry.assignedDate}</div>
+                      <div className="text-slate-700">{formatdatetime(entry.assignedDate)}</div>
                     </div>
                     <div>
                       <div className="text-xs text-slate-400 mb-1">Return Date</div>
-                      <div className="text-slate-700">{entry.returnDate}</div>
+                      <div className="text-slate-700">{formatdatetime(entry.returnDate)}</div>
                     </div>
                   </div>
                 </div>
-              );
-            })}
+              ))}
           </div>
         ) : (
           <div className="text-sm text-slate-400">No assignment history available for this asset yet.</div>
@@ -356,15 +418,23 @@ function AssetViewModalContent({ asset, getEmp, getTeam, getProject, assetTypeIc
 }
 
 export function AddAssetForm({ onCancel, onSuccess }) {
-  const { addAsset, navigate } = useApp();
+  const { addAsset, navigate, canEditAssets } = useApp();
   const [form, setForm] = useState({ type: "", name: "", serial: "", purchaseDate: "", description: "" });
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
-  const handleSubmit = (e) => {
+  if (!canEditAssets) {
+    return <NotAuthorized message="You do not have permission to add assets." />;
+  }
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.type || !form.name || !form.serial) return;
-    addAsset(form);
-    onSuccess?.();
+    try {
+      await addAsset(form);
+      onSuccess?.();
+    } catch {
+      // Toast is handled in the context.
+    }
   };
 
   const handleCancel = () => {
@@ -433,22 +503,25 @@ function EditAssetForm({ asset, employees, getTeam, getProject, onCancel, onSucc
     });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.type || !form.name || !form.serial) return;
     if (form.status === "Assigned" && !form.assignedTo) return;
 
-    updateAsset(asset.id, {
-      type: form.type,
-      name: form.name,
-      serial: form.serial,
-      purchaseDate: form.purchaseDate,
-      description: form.description,
-      status: form.status,
-      assignedTo: form.status === "Assigned" ? form.assignedTo : null,
-    });
-
-    onSuccess?.();
+    try {
+      await updateAsset(asset.id, {
+        type: form.type,
+        name: form.name,
+        serial: form.serial,
+        purchaseDate: form.purchaseDate,
+        description: form.description,
+        status: form.status,
+        assignedTo: form.status === "Assigned" ? form.assignedTo : null,
+      });
+      onSuccess?.();
+    } catch {
+      // Toast is handled in the context.
+    }
   };
 
   return (
@@ -532,6 +605,12 @@ function EditAssetForm({ asset, employees, getTeam, getProject, onCancel, onSucc
 
 // Add Asset
 export function AddAssetPage() {
+  const { canEditAssets } = useApp();
+
+  if (!canEditAssets) {
+    return <NotAuthorized message="You do not have permission to add assets." />;
+  }
+
   return (
     <div className="max-w-2xl">
       <PageHeader title="Add New Asset" subtitle="Fill in the details to add a new asset to the inventory"/>
@@ -544,13 +623,13 @@ export function AddAssetPage() {
 
 // Asset Detail
 export function AssetDetailPage() {
-  const { routeParams, getAsset, getEmployee, navigate, showToast } = useApp();
+  const { routeParams, getAsset, getEmployee, getTeam, getProject, assetAssignments, temporary, navigate, showToast, canViewAssets, canEditAssets } = useApp();
   const asset = getAsset(routeParams.id);
   const [assignModal, setAssignModal] = useState(false);
   const [tempModal, setTempModal] = useState(false);
 
+  if (!canViewAssets) return <NotAuthorized message="You need asset view permission to access this page." />;
   if (!asset) return <div className="text-slate-400 text-sm">Asset not found.</div>;
-  const emp = getEmployee(asset.assignedTo);
 
   const assetTypeIcon = (type) => {
     const map = { Laptop: Monitor, Phone: Smartphone, Pendrive: HardDrive, "Data Cable": Cable, Charger: Zap };
@@ -558,10 +637,9 @@ export function AssetDetailPage() {
     return <Icon size={24} className="text-blue-600"/>;
   };
 
-  const timeline = [
-    { action: "Asset Added", date: asset.purchaseDate || "2024-01-01", note: "Added to inventory" },
-    ...(asset.assignedTo ? [{ action: "Assigned", date: "2024-02-01", note: `Assigned to ${emp?.name}` }] : []),
-  ];
+  const activeAssignment = getActiveAssetAssignment(asset.id, assetAssignments);
+  const currentAssignment = getAssignmentLabel(activeAssignment, getEmployee, getTeam, getProject);
+  const history = getAssetHistory(asset.id, assetAssignments, getEmployee, getTeam, getProject, temporary);
 
   return (
     <div>
@@ -604,19 +682,30 @@ export function AssetDetailPage() {
           {/* Allocation History */}
           <Card className="p-6">
             <h3 className="font-semibold text-slate-800 mb-4">Allocation History</h3>
-            <div className="space-y-4">
-              {timeline.map((item, i) => (
-                <div key={i} className="flex gap-4">
-                  <div className="flex flex-col items-center">
-                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center"><Activity size={14} className="text-blue-600"/></div>
-                    {i < timeline.length - 1 && <div className="w-0.5 flex-1 bg-slate-100 my-1"/>}
+            <div className="space-y-3">
+              {history.length > 0 ? (
+                history.map((entry) => (
+                  <div key={entry.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <div className="text-sm font-semibold text-slate-700">{entry.label}</div>
+                      <div className="text-xs text-slate-400">{entry.status}</div>
+                    </div>
+                    {entry.meta && <div className="text-xs text-slate-400 mb-2">{entry.meta}</div>}
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <div className="text-xs text-slate-400 mb-1">Assigned Date</div>
+                        <div className="text-slate-700">{formatdatetime(entry.assignedDate)}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-400 mb-1">Return Date</div>
+                        <div className="text-slate-700">{formatdatetime(entry.returnDate)}</div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="pb-4 flex-1">
-                    <div className="text-sm font-medium text-slate-700">{item.action}</div>
-                    <div className="text-xs text-slate-400">{item.note} · {item.date}</div>
-                  </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <div className="text-sm text-slate-400">No assignment history available for this asset yet.</div>
+              )}
             </div>
           </Card>
         </div>
@@ -625,12 +714,12 @@ export function AssetDetailPage() {
           {/* Current Assignment */}
           <Card className="p-5">
             <h3 className="font-semibold text-slate-800 mb-4">Current Assignment</h3>
-            {emp ? (
+            {currentAssignment ? (
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold">{emp.avatar}</div>
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold ${currentAssignment.kind === "employee" ? "bg-blue-600" : "bg-emerald-600"}`}>{currentAssignment.avatar}</div>
                 <div>
-                  <div className="text-sm font-semibold text-slate-700">{emp.name}</div>
-                  <div className="text-xs text-slate-400">{emp.department} · {emp.designation}</div>
+                  <div className="text-sm font-semibold text-slate-700">{currentAssignment.label}</div>
+                  <div className="text-xs text-slate-400">{currentAssignment.meta}</div>
                 </div>
               </div>
             ) : (
@@ -643,12 +732,18 @@ export function AssetDetailPage() {
           {/* Actions */}
           <Card className="p-5">
             <h3 className="font-semibold text-slate-800 mb-4">Actions</h3>
-            <div className="space-y-2">
-              <Button className="w-full justify-center" onClick={() => setAssignModal(true)}><UserCheck size={14}/>Assign Asset</Button>
-              <Button variant="secondary" className="w-full justify-center" onClick={() => showToast("Asset marked as unused", "info")}><X size={14}/>Mark Unused</Button>
-              <Button variant="secondary" className="w-full justify-center" onClick={() => navigate("/temporary/create")}><Clock size={14}/>Temp Allocate</Button>
-              <Button variant="secondary" className="w-full justify-center" onClick={() => navigate(`/assets/${asset.id}/edit`)}><Edit size={14}/>Edit Asset</Button>
-            </div>
+            {canEditAssets ? (
+              <div className="space-y-2">
+                <Button className="w-full justify-center" onClick={() => setAssignModal(true)}><UserCheck size={14}/>Assign Asset</Button>
+                <Button variant="secondary" className="w-full justify-center" onClick={() => showToast("Asset marked as unused", "info")}><X size={14}/>Mark Unused</Button>
+                <Button variant="secondary" className="w-full justify-center" onClick={() => navigate("/temporary/create")}><Clock size={14}/>Temp Allocate</Button>
+                <Button variant="secondary" className="w-full justify-center" onClick={() => navigate(`/assets/${asset.id}/edit`)}><Edit size={14}/>Edit Asset</Button>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                You have view-only access for assets. Modifications, assignments, and temporary allocations are disabled.
+              </div>
+            )}
           </Card>
         </div>
       </div>
@@ -657,5 +752,3 @@ export function AssetDetailPage() {
 }
 
 // Employees Page
-
-

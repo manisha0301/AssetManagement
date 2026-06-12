@@ -21,23 +21,28 @@ import {
   Input,
   Modal,
   MultiSelectTags,
+  NotAuthorized,
   PageHeader,
   Select,
 } from "../../components/Common";
 import { useApp } from "../../context/AppContext";
 
 export function ProjectsPage() {
-  const { projects, employees, assets, navigate } = useApp();
+  const { projects, employees, assets, navigate, canViewAssets, canEditAssets } = useApp();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
   const [editingProject, setEditingProject] = useState(null);
   const getEmp = (id) => employees.find(e => e.id === id);
   const getAsset = (id) => assets.find((asset) => asset.id === id);
 
+  if (!canViewAssets) {
+    return <NotAuthorized message="You need view permission to access project allocations." />;
+  }
+
   return (
     <div>
       <PageHeader title="Projects" subtitle="Project asset allocations"
-        actions={<Button onClick={() => setCreateModalOpen(true)}><Plus size={14}/>New Project</Button>}
+        actions={canEditAssets ? <Button onClick={() => setCreateModalOpen(true)}><Plus size={14}/>New Project</Button> : null}
       />
       <Card>
         <div className="overflow-x-auto">
@@ -70,7 +75,7 @@ export function ProjectsPage() {
                     <td className="px-4 py-3.5">
                       <div className="flex gap-1">
                         <Button variant="ghost" size="sm" onClick={() => setSelectedProject(proj)}><Eye size={14}/></Button>
-                        <Button variant="ghost" size="sm" onClick={() => setEditingProject(proj)}><Edit size={14}/></Button>
+                        {canEditAssets && <Button variant="ghost" size="sm" onClick={() => setEditingProject(proj)}><Edit size={14}/></Button>}
                       </div>
                     </td>
                   </tr>
@@ -78,7 +83,7 @@ export function ProjectsPage() {
               })}
             </tbody>
           </table>
-          {projects.length === 0 && <EmptyState title="No projects" description="Create your first project" action={<Button onClick={() => setCreateModalOpen(true)}>New Project</Button>}/>}
+          {projects.length === 0 && <EmptyState title="No projects" description={canEditAssets ? "Create your first project" : "No projects are available."} action={canEditAssets ? <Button onClick={() => setCreateModalOpen(true)}>New Project</Button> : null}/>}
         </div>
       </Card>
 
@@ -110,15 +115,23 @@ export function ProjectsPage() {
 }
 
 export function CreateProjectForm({ onCancel, onSuccess }) {
-  const { employees, assets, addProject, navigate } = useApp();
+  const { employees, assets, addProject, navigate, canEditAssets } = useApp();
   const [form, setForm] = useState({ code: "", name: "", manager: "", members: [], assets: [] });
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
-  const handleSubmit = (e) => {
+  if (!canEditAssets) {
+    return <NotAuthorized message="You do not have permission to create projects." />;
+  }
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.code || !form.name || !form.manager) return;
-    addProject(form);
-    onSuccess?.();
+    try {
+      await addProject(form);
+      onSuccess?.();
+    } catch {
+      // Toasts are handled in the shared app context.
+    }
   };
 
   const handleCancel = () => {
@@ -254,7 +267,7 @@ function ProjectViewModalContent({ project, getEmp, getAsset }) {
 }
 
 function EditProjectForm({ project, onCancel, onSuccess }) {
-  const { employees, assets, updateProject } = useApp();
+  const { employees, assets, updateProject, canEditAssets } = useApp();
   const [form, setForm] = useState({
     code: project.code || "",
     name: project.name || "",
@@ -268,11 +281,19 @@ function EditProjectForm({ project, onCancel, onSuccess }) {
     (asset) => asset.status === "Available" || form.assets.includes(asset.id)
   );
 
-  const handleSubmit = (e) => {
+  if (!canEditAssets) {
+    return <NotAuthorized message="You do not have permission to edit projects." />;
+  }
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.code || !form.name || !form.manager) return;
-    updateProject(project.id, form);
-    onSuccess?.();
+    try {
+      await updateProject(project.id, form);
+      onSuccess?.();
+    } catch {
+      // Toasts are handled in the shared app context.
+    }
   };
 
   return (
@@ -334,7 +355,11 @@ function EditProjectForm({ project, onCancel, onSuccess }) {
 
 // Create Project
 export function CreateProjectPage() {
-  const { navigate } = useApp();
+  const { navigate, canEditAssets } = useApp();
+
+  if (!canEditAssets) {
+    return <NotAuthorized message="You do not have permission to create projects." />;
+  }
 
   return (
     <div className="max-w-2xl">
@@ -439,6 +464,5 @@ export function ProjectDetailPage() {
   );
 }
 
-// Temporary Allocations
 
 

@@ -22,26 +22,31 @@ import {
   Input,
   Modal,
   MultiSelectTags,
+  NotAuthorized,
   PageHeader,
   Textarea,
 } from "../../components/Common";
 import { useApp } from "../../context/AppContext";
 
 export function RnDPage() {
-  const { rndTeams, employees, assets, navigate } = useApp();
+  const { rndTeams, employees, assets, navigate, canViewAssets, canEditAssets } = useApp();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState(null);
   const [editingTeam, setEditingTeam] = useState(null);
   const getEmp = (id) => employees.find(e => e.id === id);
   const getAsset = (id) => assets.find((asset) => asset.id === id);
 
+  if (!canViewAssets) {
+    return <NotAuthorized message="You need view permission to access asset allocation pages." />;
+  }
+
   return (
     <div>
       <PageHeader title="R&D Teams" subtitle="Research and development team allocations"
-        actions={<Button onClick={() => setCreateModalOpen(true)}><Plus size={14}/>Create Team</Button>}
+        actions={canEditAssets ? <Button onClick={() => setCreateModalOpen(true)}><Plus size={14}/>Create Team</Button> : null}
       />
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-        {rndTeams.map(team => {
+        {rndTeams.length > 0 ? rndTeams.map(team => {
           const manager = getEmp(team.manager);
           return (
             <Card key={team.id} className="p-5 hover:shadow-md transition-shadow">
@@ -71,12 +76,19 @@ export function RnDPage() {
               </div>
               <div className="flex gap-2">
                 <Button variant="secondary" size="sm" className="flex-1 justify-center" onClick={() => setSelectedTeam(team)}><Eye size={13}/>View</Button>
-                <Button variant="ghost" size="sm" onClick={() => setEditingTeam(team)}><Edit size={13}/></Button>
+                {canEditAssets && <Button variant="ghost" size="sm" onClick={() => setEditingTeam(team)}><Edit size={13}/></Button>}
               </div>
             </Card>
           );
-        })}
-        {rndTeams.length === 0 && <EmptyState title="No teams yet" description="Create your first R&D team" action={<Button onClick={() => setCreateModalOpen(true)}>Create Team</Button>}/>}
+        }) : (
+          <Card className="col-span-full">
+            <EmptyState
+              title="No teams"
+              description={canEditAssets ? "Create your first R&D team" : "No R&D teams are available."}
+              action={canEditAssets ? <Button onClick={() => setCreateModalOpen(true)}>Create Team</Button> : null}
+            />
+          </Card>
+        )}
       </div>
 
       <Modal isOpen={createModalOpen} onClose={() => setCreateModalOpen(false)} title="Create R&D Team" size="lg">
@@ -107,15 +119,23 @@ export function RnDPage() {
 }
 
 export function CreateRnDForm({ onCancel, onSuccess }) {
-  const { employees, assets, addTeam, navigate } = useApp();
+  const { employees, assets, addTeam, navigate, canEditAssets } = useApp();
   const [form, setForm] = useState({ name: "", manager: "", members: [], assets: [], description: "" });
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
-  const handleSubmit = (e) => {
+  if (!canEditAssets) {
+    return <NotAuthorized message="You do not have permission to create R&D teams." />;
+  }
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.name || !form.manager) return;
-    addTeam(form);
-    onSuccess?.();
+    try {
+      await addTeam(form);
+      onSuccess?.();
+    } catch {
+      // Toasts are handled in the shared app context.
+    }
   };
 
   const handleCancel = () => {
@@ -251,7 +271,7 @@ function TeamViewModalContent({ team, getEmp, getAsset }) {
 }
 
 function EditRnDForm({ team, onCancel, onSuccess }) {
-  const { employees, assets, updateTeam } = useApp();
+  const { employees, assets, updateTeam, canEditAssets } = useApp();
   const [form, setForm] = useState({
     name: team.name || "",
     manager: team.manager || "",
@@ -264,11 +284,19 @@ function EditRnDForm({ team, onCancel, onSuccess }) {
     (asset) => asset.status === "Available" || form.assets.includes(asset.id)
   );
 
-  const handleSubmit = (e) => {
+  if (!canEditAssets) {
+    return <NotAuthorized message="You do not have permission to edit R&D teams." />;
+  }
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.name || !form.manager) return;
-    updateTeam(team.id, form);
-    onSuccess?.();
+    try {
+      await updateTeam(team.id, form);
+      onSuccess?.();
+    } catch {
+      // Toasts are handled in the shared app context.
+    }
   };
 
   return (
@@ -322,7 +350,11 @@ function EditRnDForm({ team, onCancel, onSuccess }) {
 
 // Create R&D Team
 export function CreateRnDPage() {
-  const { navigate } = useApp();
+  const { navigate, canEditAssets } = useApp();
+
+  if (!canEditAssets) {
+    return <NotAuthorized message="You do not have permission to create R&D teams." />;
+  }
 
   return (
     <div className="max-w-2xl">

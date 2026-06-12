@@ -21,6 +21,7 @@ import {
   FormField,
   Input,
   Modal,
+  NotAuthorized,
   PageHeader,
   Select,
   Textarea,
@@ -28,7 +29,7 @@ import {
 import { useApp } from "../../context/AppContext";
 
 export function TemporaryPage() {
-  const { temporary, employees, assets, navigate } = useApp();
+  const { temporary, employees, assets, navigate, canViewAssets, canEditAssets } = useApp();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedAllocation, setSelectedAllocation] = useState(null);
   const [editingAllocation, setEditingAllocation] = useState(null);
@@ -40,10 +41,14 @@ export function TemporaryPage() {
     return `${days} day${days !== 1 ? "s" : ""}`;
   };
 
+  if (!canViewAssets) {
+    return <NotAuthorized message="You need view permission to access temporary allocations." />;
+  }
+
   return (
     <div>
       <PageHeader title="Temporary Allocations" subtitle={`${temporary.filter(t => t.status === "Active").length} active allocations`}
-        actions={<Button onClick={() => setCreateModalOpen(true)}><Plus size={14}/>Create Allocation</Button>}
+        actions={canEditAssets ? <Button onClick={() => setCreateModalOpen(true)}><Plus size={14}/>Create Allocation</Button> : null}
       />
       <Card>
         <div className="overflow-x-auto">
@@ -66,13 +71,13 @@ export function TemporaryPage() {
                     </td>
                     <td className="px-4 py-3.5">{asset && <div><div className="text-sm font-medium text-slate-700">{asset.name}</div><div className="text-xs text-slate-400">{asset.type}</div></div>}</td>
                     <td className="px-4 py-3.5"><span className="text-sm text-slate-600">{alloc.issueDate}</span></td>
-                    <td className="px-4 py-3.5"><span className="text-sm text-slate-600">{alloc.returnDate}</span></td>
-                    <td className="px-4 py-3.5"><span className="text-sm font-medium text-slate-700">{getDuration(alloc.issueDate, alloc.returnDate)}</span></td>
+                    <td className="px-4 py-3.5"><span className="text-sm text-slate-600">{alloc.status === "Active" ? "Active" : alloc.returnDate || "N/A"}</span></td>
+                    <td className="px-4 py-3.5"><span className="text-sm font-medium text-slate-700">{alloc.status === "Active" ? "Active" : getDuration(alloc.issueDate, alloc.returnDate)}</span></td>
                     <td className="px-4 py-3.5"><Badge status={alloc.status}/></td>
                     <td className="px-4 py-3.5">
                       <div className="flex gap-1">
                         <Button variant="ghost" size="sm" onClick={() => setSelectedAllocation(alloc)}><Eye size={14}/></Button>
-                        <Button variant="ghost" size="sm" onClick={() => setEditingAllocation(alloc)}><Edit size={14}/></Button>
+                        {canEditAssets && <Button variant="ghost" size="sm" onClick={() => setEditingAllocation(alloc)}><Edit size={14}/></Button>}
                       </div>
                     </td>
                   </tr>
@@ -80,7 +85,7 @@ export function TemporaryPage() {
               })}
             </tbody>
           </table>
-          {temporary.length === 0 && <EmptyState title="No allocations" description="Create a temporary allocation" action={<Button onClick={() => setCreateModalOpen(true)}>Create</Button>}/>}
+          {temporary.length === 0 && <EmptyState title="No allocations" description={canEditAssets ? "Create a temporary allocation" : "No allocations are available."} action={canEditAssets ? <Button onClick={() => setCreateModalOpen(true)}>Create</Button> : null}/>}
         </div>
       </Card>
 
@@ -113,9 +118,13 @@ export function TemporaryPage() {
 }
 
 export function CreateTemporaryForm({ onCancel, onSuccess }) {
-  const { employees, assets, addTemporary, navigate } = useApp();
+  const { employees, assets, addTemporary, navigate, canEditAssets } = useApp();
   const availableAssets = assets.filter(a => a.status === "Available");
   const [step, setStep] = useState(1);
+
+  if (!canEditAssets) {
+    return <NotAuthorized message="You do not have permission to create temporary allocations." />;
+  }
   const [form, setForm] = useState({ employeeId: "", assetId: "", reason: "", modalName: "", issueDate: "", returnDate: "", givenBy: "" });
   const [confirmModal, setConfirmModal] = useState(false);
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
@@ -123,10 +132,14 @@ export function CreateTemporaryForm({ onCancel, onSuccess }) {
   const selectedAsset = assets.find(a => a.id === form.assetId);
   const duration = form.issueDate && form.returnDate ? Math.round((new Date(form.returnDate) - new Date(form.issueDate)) / 86400000) : null;
 
-  const handleSubmit = () => {
-    addTemporary(form);
-    setConfirmModal(false);
-    onSuccess?.();
+  const handleSubmit = async () => {
+    try {
+      await addTemporary(form);
+      setConfirmModal(false);
+      onSuccess?.();
+    } catch {
+      // Toasts are handled in the shared app context.
+    }
   };
 
   const handleCancel = () => {
@@ -234,7 +247,7 @@ export function CreateTemporaryForm({ onCancel, onSuccess }) {
           <div className="p-4 bg-slate-50 rounded-xl space-y-2 text-sm">
             <div className="flex justify-between"><span className="text-slate-500">Asset</span><span className="font-medium text-slate-700">{selectedAsset?.name}</span></div>
             <div className="flex justify-between"><span className="text-slate-500">Employee</span><span className="font-medium text-slate-700">{employees.find(e => e.id === form.employeeId)?.name}</span></div>
-            <div className="flex justify-between"><span className="text-slate-500">Period</span><span className="font-medium text-slate-700">{form.issueDate} ? {form.returnDate}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Period</span><span className="font-medium text-slate-700">{form.issueDate} - {form.returnDate}</span></div>
             {duration !== null && <div className="flex justify-between"><span className="text-slate-500">Duration</span><span className="font-medium text-amber-700">{duration} days</span></div>}
           </div>
           <p className="text-sm text-slate-600">Confirm this temporary allocation? The asset will be marked as temporarily assigned.</p>
@@ -271,11 +284,11 @@ function TemporaryViewModalContent({ allocation, getEmp, getAsset, getDuration }
         </div>
         <div className="p-4 rounded-xl bg-slate-50">
           <div className="text-xs text-slate-400 mb-1">Return Date</div>
-          <div className="text-sm font-medium text-slate-700">{allocation.returnDate}</div>
+          <div className="text-sm font-medium text-slate-700">{allocation.status === "Active" ? "Active" : allocation.returnDate || "N/A"}</div>
         </div>
         <div className="p-4 rounded-xl bg-slate-50">
           <div className="text-xs text-slate-400 mb-1">Duration</div>
-          <div className="text-sm font-medium text-slate-700">{getDuration(allocation.issueDate, allocation.returnDate)}</div>
+          <div className="text-sm font-medium text-slate-700">{allocation.status === "Active" ? "Active" : getDuration(allocation.issueDate, allocation.returnDate)}</div>
         </div>
         <div className="p-4 rounded-xl bg-slate-50">
           <div className="text-xs text-slate-400 mb-1">Status</div>
@@ -308,7 +321,12 @@ function TemporaryViewModalContent({ allocation, getEmp, getAsset, getDuration }
 }
 
 function EditTemporaryForm({ allocation, onCancel, onSuccess }) {
-  const { employees, assets, updateTemporary } = useApp();
+  const { employees, assets, updateTemporary, canEditAssets } = useApp();
+
+  if (!canEditAssets) {
+    return <NotAuthorized message="You do not have permission to edit temporary allocations." />;
+  }
+
   const [form, setForm] = useState({
     employeeId: allocation.employeeId || "",
     assetId: allocation.assetId || "",
@@ -325,16 +343,20 @@ function EditTemporaryForm({ allocation, onCancel, onSuccess }) {
     (asset) => asset.id === allocation.assetId || asset.status === "Available"
   );
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.employeeId || !form.assetId || !form.issueDate || !form.returnDate) return;
     if (form.status === "Returned" && !form.receivedBy) return;
 
-    updateTemporary(allocation.id, {
-      ...form,
-      receivedBy: form.status === "Returned" ? form.receivedBy : "",
-    });
-    onSuccess?.();
+    try {
+      await updateTemporary(allocation.id, {
+        ...form,
+        receivedBy: form.status === "Returned" ? form.receivedBy : "",
+      });
+      onSuccess?.();
+    } catch {
+      // Toasts are handled in the shared app context.
+    }
   };
 
   return (
@@ -417,7 +439,9 @@ export function TemporaryDetailPage() {
   const asset = getAsset(alloc.assetId);
   const givenBy = getEmployee(alloc.givenBy);
   const receivedBy = getEmployee(alloc.receivedBy);
-  const duration = Math.round((new Date(alloc.returnDate) - new Date(alloc.issueDate)) / 86400000);
+  const duration = alloc.status === "Active" || !alloc.returnDate
+    ? null
+    : Math.round((new Date(alloc.returnDate) - new Date(alloc.issueDate)) / 86400000);
 
   return (
     <div>
@@ -446,11 +470,11 @@ export function TemporaryDetailPage() {
               </div>
               <div>
                 <div className="text-xs text-slate-400 mb-1">Return Date</div>
-                <div className="text-sm font-semibold text-slate-700">{alloc.returnDate}</div>
+                <div className="text-sm font-semibold text-slate-700">{alloc.status === "Active" ? "Active" : alloc.returnDate || "N/A"}</div>
               </div>
               <div>
                 <div className="text-xs text-slate-400 mb-1">Duration</div>
-                <div className="text-sm font-semibold text-amber-700">{duration} days</div>
+                <div className="text-sm font-semibold text-amber-700">{duration === null ? "Active" : `${duration} days`}</div>
               </div>
             </div>
             {alloc.reason && (
@@ -507,7 +531,19 @@ export function TemporaryDetailPage() {
         </div>
         <div className="flex gap-2 justify-end">
           <Button variant="secondary" onClick={() => setReturnModal(false)}>Cancel</Button>
-          <Button variant="success" onClick={() => { returnAsset(alloc.id); setReturnModal(false); }}><Check size={14}/>Confirm Return</Button>
+          <Button
+            variant="success"
+            onClick={async () => {
+              try {
+                await returnAsset(alloc.id);
+                setReturnModal(false);
+              } catch {
+                // Toasts are handled in the shared app context.
+              }
+            }}
+          >
+            <Check size={14}/>Confirm Return
+          </Button>
         </div>
       </Modal>
     </div>

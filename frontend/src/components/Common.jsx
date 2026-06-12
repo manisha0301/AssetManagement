@@ -125,6 +125,16 @@ export function EmptyState({ title, description, action }) {
   );
 }
 
+export function NotAuthorized({ message = "You do not have permission to view this content." }) {
+  return (
+    <div className="rounded-2xl border border-rose-100 bg-rose-50 p-6 text-center">
+      <div className="text-2xl text-rose-600 mb-3"><AlertCircle size={28} /></div>
+      <div className="text-lg font-semibold text-slate-800 mb-2">Access Denied</div>
+      <p className="text-sm text-slate-500">{message}</p>
+    </div>
+  );
+}
+
 export function LoadingSkeleton() {
   return (
     <div className="space-y-3">

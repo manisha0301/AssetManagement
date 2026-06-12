@@ -1,4 +1,5 @@
 ﻿import DashboardPage from "../features/dashboard/DashboardPage";
+import LoginPage from "../features/login/Login";
 import { AddAssetPage, AssetDetailPage, AssetsPage } from "../features/assets/AssetsPage";
 import EmployeesPage from "../features/employees/EmployeesPage";
 import { CreateProjectPage, ProjectDetailPage, ProjectsPage } from "../features/projects/ProjectsPage";
@@ -6,6 +7,7 @@ import { CreateRnDPage, RnDDetailPage, RnDPage } from "../features/rnd/RnDPage";
 import { CreateTemporaryPage, TemporaryDetailPage, TemporaryPage } from "../features/temporary/TemporaryPage";
 
 const pageConfig = {
+  "/login": { component: LoginPage, title: "Sign In" },
   "/dashboard": { component: DashboardPage, title: "Dashboard" },
   "/assets": { component: AssetsPage, title: "All Assets" },
   "/assets/add": { component: AddAssetPage, title: "Add Asset" },
