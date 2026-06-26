@@ -3,11 +3,11 @@ const pool = require("../config/db");
 const { hashPassword } = require("../utils/password");
 
 const DEFAULT_ADMIN_USER = {
-  userId: process.env.DEFAULT_ADMIN_USER_ID || "USR-ADMIN",
-  displayName: process.env.DEFAULT_ADMIN_DISPLAY_NAME || "Admin User",
-  email: String(process.env.DEFAULT_ADMIN_EMAIL || "admin@assetflow.com").trim().toLowerCase(),
-  password: process.env.DEFAULT_ADMIN_PASSWORD || "Admin@12345",
-  role: process.env.DEFAULT_ADMIN_ROLE || "admin",
+  userId: process.env.DEFAULT_ADMIN_USER_ID,
+  displayName: process.env.DEFAULT_ADMIN_DISPLAY_NAME,
+  email: String(process.env.DEFAULT_ADMIN_EMAIL).trim().toLowerCase(),
+  password: process.env.DEFAULT_ADMIN_PASSWORD,
+  role: process.env.DEFAULT_ADMIN_ROLE,
 };
 
 function generateUserId() {
