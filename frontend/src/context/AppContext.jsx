@@ -37,6 +37,8 @@ import {
   updateProject as updateProjectRequest,
   updateTeam as updateTeamRequest,
   updateTemporaryIssue,
+  setAuthToken,
+  clearAuthToken,
 } from "../lib/api";
 
 const AppContext = createContext();
@@ -313,11 +315,13 @@ export function AppProvider({ children }) {
   const login = async ({ email, password }) => {
     const response = await loginRequest({ email, password });
     const user = response?.data?.user || null;
+    const accessToken = response?.data?.accessToken || null;
 
-    if (!user) {
-      throw new Error("Login response did not include a user profile");
+    if (!user || !accessToken) {
+      throw new Error("Login response did not include required auth data");
     }
 
+    setAuthToken(accessToken);
     setAuthUser(user);
     setIsAuthenticated(true);
     window.sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
@@ -329,6 +333,7 @@ export function AppProvider({ children }) {
     setIsAuthenticated(false);
     setAuthUser(null);
     window.sessionStorage.removeItem(AUTH_STORAGE_KEY);
+    clearAuthToken();
     clearAppData();
     navigate(DEFAULT_LOGIN_PATH);
     setSidebarOpen(true);

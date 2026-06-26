@@ -134,6 +134,20 @@ async function initializeDatabase() {
     );
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_sessions (
+      session_id UUID PRIMARY KEY,
+      user_id VARCHAR(20) NOT NULL REFERENCES app_users(user_id) ON DELETE CASCADE,
+      refresh_token_hash TEXT NOT NULL UNIQUE,
+      token_version INTEGER NOT NULL DEFAULT 1,
+      expires_at TIMESTAMP NOT NULL,
+      revoked BOOLEAN NOT NULL DEFAULT FALSE,
+      remember_me BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   await seedDefaultAdminUser();
 
   console.log("Database initialized successfully.");

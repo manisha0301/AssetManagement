@@ -1,9 +1,12 @@
 const { getUserByEmail, getAllUsers, getUserById, createUser, updateUser, updateUserPassword, deleteUser, normalizePermissions } = require("../models/authModel");
+const { createSession, getSessionByRefreshTokenHash, updateSession, revokeSession } = require("../models/sessionModel");
 const { verifyPassword } = require("../utils/password");
+const { createAccessToken, generateRefreshToken, hashRefreshToken, REFRESH_TOKEN_TTL, getRefreshTokenExpiryDate } = require("../utils/token");
+const { createHttpError } = require("../utils/httpError");
 
 async function login(req, res, next) {
   try {
-    const { email, password } = req.body || {};
+    const { email, password, remember } = req.body || {};
     const normalizedEmail = String(email || "").trim().toLowerCase();
 
     if (!normalizedEmail || !password) {
@@ -22,11 +25,37 @@ async function login(req, res, next) {
       });
     }
 
+    const refreshToken = generateRefreshToken();
+    const refreshTokenHash = hashRefreshToken(refreshToken);
+    const expiresAt = getRefreshTokenExpiryDate();
+    const session = await createSession({
+      userId: user.user_id,
+      refreshTokenHash,
+      expiresAt,
+      rememberMe: Boolean(remember),
+      tokenVersion: 1,
+    });
+
+    const accessToken = createAccessToken({
+      userId: user.user_id,
+      sessionId: session.session_id,
+      tokenVersion: session.token_version,
+    });
+
     const permissions = normalizePermissions(user.permissions, user.role);
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.COOKIE_SECURE === "true",
+      sameSite: "lax",
+      path: "/",
+      expires: expiresAt,
+    });
+
     return res.status(200).json({
       success: true,
       message: "Login successful",
       data: {
+        accessToken,
         user: {
           id: user.user_id,
           displayName: user.display_name,
@@ -36,6 +65,92 @@ async function login(req, res, next) {
         },
       },
     });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function refreshToken(req, res, next) {
+  try {
+    const refreshToken = req.cookies?.refreshToken;
+
+    if (!refreshToken) {
+      return next(createHttpError("Refresh token is missing", 401));
+    }
+
+    const refreshTokenHash = hashRefreshToken(refreshToken);
+    const session = await getSessionByRefreshTokenHash(refreshTokenHash);
+
+    if (!session || session.revoked || new Date(session.expires_at) < new Date()) {
+      return next(createHttpError("Refresh token is invalid or expired", 401));
+    }
+
+    const user = await getUserById(session.user_id);
+    if (!user || !user.is_active) {
+      await revokeSession(session.session_id);
+      return next(createHttpError("User not found or inactive", 401));
+    }
+
+    const newRefreshToken = generateRefreshToken();
+    const newRefreshTokenHash = hashRefreshToken(newRefreshToken);
+    const expiresAt = getRefreshTokenExpiryDate();
+    const nextVersion = session.token_version + 1;
+
+    await updateSession(session.session_id, {
+      refreshTokenHash: newRefreshTokenHash,
+      expiresAt,
+      tokenVersion: nextVersion,
+    });
+
+    const accessToken = createAccessToken({
+      userId: user.user_id,
+      sessionId: session.session_id,
+      tokenVersion: nextVersion,
+    });
+
+    const permissions = normalizePermissions(user.permissions, user.role);
+    res.cookie("refreshToken", newRefreshToken, {
+      httpOnly: true,
+      secure: process.env.COOKIE_SECURE === "true",
+      sameSite: "lax",
+      path: "/",
+      expires: expiresAt,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Token refreshed",
+      data: {
+        accessToken,
+        user: {
+          id: user.user_id,
+          displayName: user.display_name,
+          email: user.email,
+          role: user.role,
+          permissions,
+        },
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function logout(req, res, next) {
+  try {
+    const sessionId = req.session?.session_id;
+    if (sessionId) {
+      await revokeSession(sessionId);
+    }
+
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: process.env.COOKIE_SECURE === "true",
+      sameSite: "lax",
+      path: "/",
+    });
+
+    return res.status(200).json({ success: true, message: "Logged out successfully" });
   } catch (error) {
     return next(error);
   }
@@ -137,6 +252,8 @@ async function deleteExistingUser(req, res, next) {
 
 module.exports = {
   login,
+  refreshToken,
+  logout,
   listUsers,
   createNewUser,
   updateExistingUser,

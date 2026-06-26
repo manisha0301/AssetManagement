@@ -1,28 +1,118 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+let authToken = null;
+let isRefreshing = false;
+let refreshQueue = [];
 
-async function apiRequest(path, options = {}) {
-  const { body, signal, method = "GET" } = options;
+export function setAuthToken(token) {
+  authToken = token;
+}
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+export function clearAuthToken() {
+  authToken = null;
+}
+
+function enqueueRefreshRequest(resolve, reject) {
+  refreshQueue.push({ resolve, reject });
+}
+
+function resolveRefreshQueue(token) {
+  refreshQueue.forEach(({ resolve }) => resolve(token));
+  refreshQueue = [];
+}
+
+function rejectRefreshQueue(error) {
+  refreshQueue.forEach(({ reject }) => reject(error));
+  refreshQueue = [];
+}
+
+async function fetchWithCredentials(path, options = {}) {
+  const { body, signal, method = "GET", credentials = "include" } = options;
+
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
+  if (authToken) {
+    headers.Authorization = `Bearer ${authToken}`;
+  }
+
+  return fetch(`${API_BASE_URL}${path}`, {
     method,
     signal,
+    credentials,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+}
+
+async function refreshAccessToken() {
+  const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+    method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
     },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
   const payload = await response.json().catch(() => ({}));
-
   if (!response.ok) {
-    throw new Error(payload.message || `Request failed with status ${response.status}`);
+    throw new Error(payload.message || `Refresh failed with status ${response.status}`);
   }
 
   return payload;
 }
 
+export async function apiRequest(path, options = {}) {
+  const { body, signal, method = "GET", credentials = "include" } = options;
+  const response = await fetchWithCredentials(path, { body, signal, method, credentials });
+  const payload = await response.json().catch(() => ({}));
+
+  if (response.ok) {
+    return payload;
+  }
+
+  if (response.status !== 401 || path === "/api/auth/login" || path === "/api/auth/refresh") {
+    throw new Error(payload.message || `Request failed with status ${response.status}`);
+  }
+
+  if (!isRefreshing) {
+    isRefreshing = true;
+    try {
+      const refreshPayload = await refreshAccessToken();
+      const newToken = refreshPayload?.data?.accessToken;
+      if (!newToken) {
+        throw new Error("Refresh failed to return a new access token");
+      }
+      setAuthToken(newToken);
+      resolveRefreshQueue(newToken);
+      const retryResponse = await fetchWithCredentials(path, { body, signal, method, credentials });
+      const retryPayload = await retryResponse.json().catch(() => ({}));
+      if (!retryResponse.ok) {
+        throw new Error(retryPayload.message || `Request failed with status ${retryResponse.status}`);
+      }
+      return retryPayload;
+    } catch (error) {
+      rejectRefreshQueue(error);
+      throw error;
+    } finally {
+      isRefreshing = false;
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    enqueueRefreshRequest(resolve, reject);
+  }).then(async () => {
+    const retryResponse = await fetchWithCredentials(path, { body, signal, method, credentials });
+    const retryPayload = await retryResponse.json().catch(() => ({}));
+    if (!retryResponse.ok) {
+      throw new Error(retryPayload.message || `Request failed with status ${retryResponse.status}`);
+    }
+    return retryPayload;
+  });
+}
+
 export async function login(body) {
-  return apiRequest("/api/auth/login", { method: "POST", body });
+  return apiRequest("/api/auth/login", { method: "POST", body, credentials: "include" });
 }
 
 export async function fetchUsers(signal) {
